@@ -1,19 +1,13 @@
 # Açaí Stock (Flutter)
 
-## Run (Supabase + backup enabled)
+## Quick Start
 
 ```bash
-flutter run \
-  --dart-define=SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co \
-  --dart-define=SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY \
-  --dart-define=SUPABASE_BACKUP_BUCKET=backups
+flutter pub get
+flutter run
 ```
 
-Windows PowerShell:
-
-```powershell
-flutter run --dart-define=SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co --dart-define=SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY --dart-define=SUPABASE_BACKUP_BUCKET=backups
-```
+**Nota**: Configure Firebase conforme [FIREBASE_SETUP.md](FIREBASE_SETUP.md)
 
 Pre-check (Windows plugins): enable Developer Mode.
 
@@ -26,7 +20,7 @@ start ms-settings:developers
 - `lib/screens`: apresentação (auth, abas, scanner, entrada manual).
 - `lib/providers`: estado e regras (`AppStore`).
 - `lib/models`: entidades (`Product`).
-- `lib/data`: acesso a dados e integrações (`sqflite`, export, notificações, biometria, backup).
+- `lib/data`: acesso a dados e integrações (`sqflite`, export, notificações, biometria, auth).
 - `lib/widgets`: componentes reutilizáveis.
 - `lib/theme`: tema e paleta.
 
@@ -36,7 +30,7 @@ start ms-settings:developers
 - Persistência local: `sqflite`, `path`, `shared_preferences`
 - Arquivos e exportação: `path_provider`, `csv`, `pdf`
 - Segurança e alertas: `local_auth`, `flutter_local_notifications`
-- Backup em nuvem: `supabase`
+- Autenticação: `firebase_auth`, `firebase_core`
 
 ## Configuração de banco e ambiente
 
@@ -46,22 +40,14 @@ start ms-settings:developers
 dart pub get
 ```
 
-2. Banco SQLite:
+2. Configure Firebase (veja [FIREBASE_SETUP.md](FIREBASE_SETUP.md)):
+   - Crie projeto no Firebase Console
+   - Baixe credenciais para suas plataformas
+   - Atualize `lib/firebase_options.dart`
+
+3. Banco SQLite:
    - arquivo: `acai_stock.db`
    - criação e migração executadas automaticamente por `LocalDatabase`.
-
-3. Variáveis de ambiente (`--dart-define`):
-   - `SUPABASE_URL`
-   - `SUPABASE_ANON_KEY`
-   - `SUPABASE_BACKUP_BUCKET` (opcional, default `backups`)
-
-4. Recuperacao de senha pelo Supabase:
-   - em Authentication > URL Configuration, adicione `acai-stock://auth-callback` em Redirect URLs.
-   - o link de recuperacao abrira o app e mostrara a tela para definir a nova senha.
-
-5. Crie bucket no Supabase Storage:
-   - nome: `backups` (ou o definido em `SUPABASE_BACKUP_BUCKET`)
-   - permissão de upload para a chave utilizada.
 
 ## Scripts de migração (auditoria)
 

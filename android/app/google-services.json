@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "266174229647",
+    "project_id": "app-de-estoque-4173b",
+    "storage_bucket": "app-de-estoque-4173b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:266174229647:android:74a6f7e5c33a6cc5cc14fa",
+        "android_client_info": {
+          "package_name": "com.example.acaistock"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzkKqOoi45NLtGZ2K9544eocdfCc7G2oQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

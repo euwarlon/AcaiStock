@@ -1,35 +1,25 @@
 import 'package:acai_stock/providers/app_store.dart';
 import 'package:acai_stock/screens/root_flow.dart';
 import 'package:acai_stock/theme/app_theme.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
-
-  SupabaseClient? supabaseClient;
-  if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
-    try {
-      await Supabase.initialize(
-        url: supabaseUrl,
-        anonKey: supabaseAnonKey,
-      );
-      supabaseClient = Supabase.instance.client;
-    } catch (e) {
-      debugPrint(
-          'Falha ao inicializar Supabase: $e. Continuando sem sincronização.');
-    }
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Falha ao inicializar Firebase: $e. Continuando sem sincronização.');
   }
 
   runApp(
     ChangeNotifierProvider(
-      create: (_) => AppStore(
-        supabaseClient: supabaseClient,
-      ),
+      create: (_) => AppStore(),
       child: const AcaiStockApp(),
     ),
   );

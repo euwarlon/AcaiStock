@@ -1,30 +1,24 @@
 import 'dart:async';
 
-import 'package:acai_stock/data/backup_service.dart';
+import 'package:acai_stock/data/firebase_auth_service.dart';
 import 'package:acai_stock/data/export_service.dart';
-import 'package:acai_stock/data/local_credentials_store.dart';
 import 'package:acai_stock/data/local_database.dart';
 import 'package:acai_stock/data/notification_service.dart';
-import 'package:acai_stock/data/sync_queue.dart';
-import 'package:acai_stock/data/sync_service.dart';
 import 'package:acai_stock/models/product.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 enum AuthScreen { login, register, recovery, resetPassword }
 
 class AppStore extends ChangeNotifier {
-  AppStore({SupabaseClient? supabaseClient})
-      : _supabaseClient = supabaseClient {
+  AppStore() {
     unawaited(_initialize());
   }
 
   static const _notificationsKey = 'notifications';
 
-  final SupabaseClient? _supabaseClient;
-
-  bool get usesRemoteAuth => _supabaseClient != null;
+  bool get usesRemoteAuth => true;
   static const _darkModeKey = 'dark_mode';
   static const _languageKey = 'language';
 
@@ -92,12 +86,10 @@ class AppStore extends ChangeNotifier {
   ];
 
   final LocalDatabase _database = LocalDatabase.instance;
-  final BackupService _backupService = BackupService();
   final ExportService _exportService = ExportService();
   final NotificationService _notificationService = NotificationService.instance;
-  final LocalCredentialsStore _credentials = LocalCredentialsStore();
+  final FirebaseAuthService _authService = FirebaseAuthService.instance;
   SharedPreferences? _prefs;
-  StreamSubscription? _authStateSubscription;
   List<Product> _products = [];
 
   AuthScreen authScreen = AuthScreen.login;
@@ -136,18 +128,6 @@ class AppStore extends ChangeNotifier {
     lossQuantityLast30Days = await _database.getLossQuantityLast30Days();
   }
 
-  Future<void> _queueProductUpdate(Product product) async {
-    if (_supabaseClient == null) return;
-    await _database.addSyncOnUpdate(product);
-    unawaited(SyncService.instance.syncWithServer());
-  }
-
-  Future<void> _queueProductDelete(int id) async {
-    if (_supabaseClient == null) return;
-    await _database.addSyncOnDelete(id);
-    unawaited(SyncService.instance.syncWithServer());
-  }
-
   Future<String?> _validateUniqueBarcode(Product product) async {
     final barcode = product.barcode?.trim();
     if (barcode == null || barcode.isEmpty) return null;
@@ -165,10 +145,7 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
 
     _prefs = await SharedPreferences.getInstance();
-    await _credentials.reload();
     await _notificationService.initialize();
-    await SyncQueue.instance.initialize();
-    SyncService.instance.initialize(_supabaseClient);
     await _initializeAuthSession();
     notifications = _prefs?.getBool(_notificationsKey) ?? true;
     darkMode = _prefs?.getBool(_darkModeKey) ?? false;
@@ -222,7 +199,6 @@ class AppStore extends ChangeNotifier {
       galpaoZerado: false,
     );
     await _database.updateProduct(updated);
-    await _queueProductUpdate(updated);
     _products = _products.map((p) => p.id == updated.id ? updated : p).toList();
     await _notifyIfCritical(updated);
     notifyListeners();
@@ -247,14 +223,9 @@ class AppStore extends ChangeNotifier {
     if (normalizedProduct.id == null) {
       final id = await _database.insertProduct(normalizedProduct);
       final created = normalizedProduct.copyWith(id: id);
-      if (_supabaseClient != null) {
-        await _database.addSyncOnCreate(created);
-        unawaited(SyncService.instance.syncWithServer());
-      }
       _products = [..._products, created];
     } else {
       await _database.updateProduct(normalizedProduct);
-      await _queueProductUpdate(normalizedProduct);
       _products = _products
           .map((p) => p.id == normalizedProduct.id ? normalizedProduct : p)
           .toList();
@@ -266,7 +237,6 @@ class AppStore extends ChangeNotifier {
   Future<void> deleteProduct(Product product) async {
     if (product.id == null) return;
     await _database.deleteProductById(product.id!);
-    await _queueProductDelete(product.id!);
     _products = _products.where((p) => p.id != product.id).toList();
     notifyListeners();
   }
@@ -304,7 +274,6 @@ class AppStore extends ChangeNotifier {
       galpaoZerado: false,
     );
     await _database.updateProduct(updated);
-    await _queueProductUpdate(updated);
     _products = _products.map((p) => p.id == updated.id ? updated : p).toList();
     await _notifyIfCritical(updated);
     notifyListeners();
@@ -321,7 +290,6 @@ class AppStore extends ChangeNotifier {
       motivo: 'Vencimento',
     );
     await _database.deleteProductById(product.id!);
-    await _queueProductDelete(product.id!);
     _products = _products.where((p) => p.id != product.id).toList();
     lossQuantityLast30Days = await _database.getLossQuantityLast30Days();
     notifyListeners();
@@ -416,8 +384,10 @@ class AppStore extends ChangeNotifier {
     return [csvPath, pdfPath];
   }
 
-  Future<String> backupDatabaseToCloud() {
-    return _backupService.backupSQLiteToSupabase(_supabaseClient);
+  // Placeholder for cloud backup. Previously used Supabase.
+  // If you want Firebase Storage backups, implement upload logic here.
+  Future<String> backupDatabaseToCloud() async {
+    return 'Backup em nuvem não configurado. Configure Firebase Storage.';
   }
 
   void setAuthScreen(AuthScreen screen) {
@@ -429,43 +399,28 @@ class AppStore extends ChangeNotifier {
     required String email,
     required String password,
   }) async {
-    final prefs = _prefs;
-    if (prefs == null) return 'Aguarde a inicialização e tente de novo.';
-    final emailErr = _credentials.validateEmailFormat(email);
-    if (emailErr != null) return emailErr;
+    if (email.isEmpty) return 'Informe seu e-mail.';
     if (password.isEmpty) return 'Preencha o campo de senha.';
 
-    if (_supabaseClient != null) {
-      try {
-        final response = await _supabaseClient.auth.signInWithPassword(
-          email: email.trim(),
-          password: password,
-        );
-        final user = response.user;
-        if (user == null || response.session == null) {
-          return 'Falha ao autenticar. Verifique seus dados e tente novamente.';
-        }
-        currentUserName = user.email?.split('@').first;
-        isLoggedIn = true;
-        await _loadProducts();
-        notifyListeners();
-        return null;
-      } on AuthException catch (error) {
-        return error.message;
-      } catch (error) {
-        return error.toString();
+    try {
+      await _authService.signIn(
+        email: email.trim(),
+        password: password,
+      );
+      final user = _authService.currentUser;
+      if (user == null) {
+        return 'Falha ao autenticar. Verifique seus dados e tente novamente.';
       }
+      currentUserName = user.email?.split('@').first;
+      isLoggedIn = true;
+      await _loadProducts();
+      notifyListeners();
+      return null;
+    } on FirebaseAuthException catch (error) {
+      return error.message ?? 'Erro ao fazer login.';
+    } catch (error) {
+      return error.toString();
     }
-
-    final err = _credentials.validateLogin(email, password);
-    if (err != null) return err;
-    final account = _credentials.accountForEmail(email);
-    if (account == null) return 'Conta não encontrada.';
-    currentUserName = account.name;
-    isLoggedIn = true;
-    await _loadProducts();
-    notifyListeners();
-    return null;
   }
 
   Future<String?> registerAccount({
@@ -473,105 +428,68 @@ class AppStore extends ChangeNotifier {
     required String email,
     required String password,
   }) async {
-    final emailErr = _credentials.validateEmailFormat(email);
-    if (emailErr != null) return emailErr;
+    if (email.isEmpty) return 'Informe seu e-mail.';
     if (password.length < 6) return 'A senha deve ter pelo menos 6 caracteres.';
 
-    if (_supabaseClient != null) {
-      try {
-        final response = await _supabaseClient.auth.signUp(
-          email: email.trim(),
-          password: password,
-        );
-        if (response.session != null && response.user != null) {
-          currentUserName = response.user!.email?.split('@').first;
-          isLoggedIn = true;
-          await _loadProducts();
-          notifyListeners();
-          return null;
-        }
-        return 'Conta criada. Verifique o e-mail para ativar sua conta.';
-      } on AuthException catch (error) {
-        return error.message;
-      } catch (error) {
-        return error.toString();
+    try {
+      await _authService.signUp(
+        email: email.trim(),
+        password: password,
+      );
+      final user = _authService.currentUser;
+      if (user == null) {
+        return 'Falha ao criar conta.';
       }
+      currentUserName = user.email?.split('@').first;
+      isLoggedIn = true;
+      await _loadProducts();
+      notifyListeners();
+      return null;
+    } on FirebaseAuthException catch (error) {
+      return error.message ?? 'Erro ao criar conta.';
+    } catch (error) {
+      return error.toString();
     }
-
-    final err = await _credentials.register(
-      name: name,
-      email: email,
-      password: password,
-    );
-    if (err != null) return err;
-    return loginWithCredentials(email: email, password: password);
   }
 
   Future<String?> recoverPassword({
     required String email,
   }) async {
-    final prefs = _prefs;
-    if (prefs == null) return 'Aguarde a inicialização e tente de novo.';
-    final emailErr = _credentials.validateEmailFormat(email);
-    if (emailErr != null) return emailErr;
+    if (email.isEmpty) return 'Informe seu e-mail.';
 
-    if (_supabaseClient != null) {
-      try {
-        await _supabaseClient.auth.resetPasswordForEmail(
-          email.trim(),
-          redirectTo: 'acai-stock://auth-callback',
-        );
-        return null;
-      } on AuthException catch (error) {
-        return error.message;
-      } catch (error) {
-        return error.toString();
-      }
+    try {
+      await _authService.sendPasswordResetEmail(email.trim());
+      return null;
+    } on FirebaseAuthException catch (error) {
+      return error.message ?? 'Erro ao enviar e-mail de recuperação.';
+    } catch (error) {
+      return error.toString();
     }
-
-    final account = _credentials.accountForEmail(email);
-    if (account == null) return 'Conta não encontrada.';
-    return 'Recuperação local de senha não está disponível no momento. Configure Supabase ou use o login local.';
   }
 
   Future<String?> updateRecoveredPassword({
     required String password,
     required String confirmPassword,
   }) async {
-    if (_supabaseClient == null) {
-      return 'Recuperação pelo Supabase não está configurada.';
-    }
-    if (!isPasswordRecoveryMode) {
-      return 'Abra o link de recuperação enviado por e-mail antes de redefinir a senha.';
-    }
     if (password.length < 6) return 'A senha deve ter pelo menos 6 caracteres.';
     if (password != confirmPassword) return 'As senhas não conferem.';
 
     try {
-      await _supabaseClient.auth.updateUser(
-        UserAttributes(password: password),
-      );
-      await _supabaseClient.auth.signOut();
-      isPasswordRecoveryMode = false;
-      isLoggedIn = false;
-      currentUserName = null;
-      authScreen = AuthScreen.login;
-      notifyListeners();
+      await _authService.updatePassword(password);
+      await logout();
       return null;
-    } on AuthException catch (error) {
-      return error.message;
+    } on FirebaseAuthException catch (error) {
+      return error.message ?? 'Erro ao atualizar senha.';
     } catch (error) {
       return error.toString();
     }
   }
 
   Future<void> logout() async {
-    if (_supabaseClient != null) {
-      try {
-        await _supabaseClient.auth.signOut();
-      } catch (_) {
-        // Erro ao fazer logout no Supabase
-      }
+    try {
+      await _authService.signOut();
+    } catch (_) {
+      // Erro ao fazer logout no Firebase
     }
     isLoggedIn = false;
     isPasswordRecoveryMode = false;
@@ -581,36 +499,12 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> _initializeAuthSession() async {
-    if (_supabaseClient == null) return;
-
-    final session = _supabaseClient.auth.currentSession;
-    final user = session?.user;
+    final user = _authService.currentUser;
     if (user != null) {
       isLoggedIn = true;
       currentUserName = user.email?.split('@').first;
     }
-
-    _authStateSubscription = _supabaseClient.auth.onAuthStateChange.listen(
-      (authState) {
-        final session = authState.session;
-        final user = session?.user;
-        if (authState.event == AuthChangeEvent.passwordRecovery) {
-          isPasswordRecoveryMode = true;
-          isLoggedIn = false;
-          currentUserName = user?.email?.split('@').first;
-          authScreen = AuthScreen.resetPassword;
-        } else if (user != null) {
-          isPasswordRecoveryMode = false;
-          isLoggedIn = true;
-          currentUserName = user.email?.split('@').first;
-        } else {
-          isPasswordRecoveryMode = false;
-          isLoggedIn = false;
-          currentUserName = null;
-        }
-        notifyListeners();
-      },
-    );
+    notifyListeners();
   }
 
   Future<void> toggleNotifications(bool value) async {
@@ -636,8 +530,6 @@ class AppStore extends ChangeNotifier {
 
   @override
   void dispose() {
-    _authStateSubscription?.cancel();
-    SyncService.instance.dispose();
     super.dispose();
   }
 }
